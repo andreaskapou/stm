@@ -164,8 +164,7 @@ def fit_amortized_lda(D, nTopics, nRegions, nSteps = 1000, batch_size=64,
     # Our guide
     guide = functools.partial(amortized_lda_guide, pred)
 
-    elbo = pyro.infer.TraceEnum_ELBO
-    elbo = elbo(max_plate_nesting=2)
+    elbo = pyro.infer.TraceEnum_ELBO(max_plate_nesting=2)
     optim = pyro.optim.ClippedAdam({"lr": lr})
     svi = pyro.infer.SVI(amortized_lda_model, guide, optim, elbo)
     losses = []
