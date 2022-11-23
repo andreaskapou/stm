@@ -57,6 +57,18 @@ def qc_simulation_object(obj, peak_detection_qc_thr):
         obj_qc['D_str'].append(tmp_str)
 
     obj_qc['D'] = np.array(obj_qc['D'])
+    # now need to re-index D matrix so as to form consistent/valid input to pyro routines
+    # first, build dictionary of old region ids to new indices
+    original_qc_dict = {}
+    tmp_original_entries = np.sort(list(set(obj_qc['D'].flatten())))
+    for k, entry in enumerate(tmp_original_entries):
+        original_qc_dict[entry] = k
+
+    # secoond, adjust entries of D matrix according to above dictionary
+    # for this trick using features of python dictionaries, 
+    # see: https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
+    obj_qc['D'] = np.vectorize(original_qc_dict.__getitem__)(obj_qc['D']) 
+
     print('shape  of D after QC:            ',obj_qc['D'].shape)
     print('length of D_freq after QC:       ',len(obj_qc['D_str']))
 
