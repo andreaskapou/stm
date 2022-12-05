@@ -3,16 +3,17 @@ import sys
 import os.path as osp
 
 import torch
+import pyro
+import pyro.distributions as dist
+from pyro.ops.indexing import Vindex
+
 import pandas as pd
 import numpy as np
-
-from scipy.stats import dirichlet, multinomial
 from scipy.sparse import lil_matrix
 #from sklearn.feature_extraction.text import TfidfTransformer
 
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
-
 
 def simulate_lda_datum(N, theta, phi):
     """
@@ -22,26 +23,21 @@ def simulate_lda_datum(N, theta, phi):
     :param theta: cell-topic distribution
     :param phi: matrix of topic-region probabilities
     """
-    
     d = np.empty([N])
     d_dict = {}
     d_str = []
-    # for each word
+    
+    # Sample topics and corresponding regions
+    z = dist.Categorical(theta).sample([N])
+    phi_z = Vindex(phi)[z, :]
+    w = dist.Categorical(phi_z).sample().detach().tolist()
+    # populate information
     for n in range(N):
-        # sample the possible topics
-        z_n = multinomial.rvs(1, theta)
-        # get the identity of the topic; the one with the highest probability
-        z = np.argmax(z_n)
-        # sample the possible regions from the topic
-        w_n = multinomial.rvs(1, phi[z, :])
-        # get the identity of the region; the one with the highest probability
-        w = np.argmax(w_n)
-
-        if w not in d_dict:
-            d_dict[w] = 0
-        d_dict[w] = d_dict[w] + 1
-        d_str.append('w{}'.format(w))
-        d[n] = w
+        if w[n] not in d_dict:
+            d_dict[w[n]] = 0
+        d_dict[w[n]] = d_dict[w[n]] + 1
+        d_str.append('w{}'.format(w[n]))
+        d[n] = w[n]
         
     obj = dict()
     obj['d'] = d
@@ -62,11 +58,10 @@ def simulate_lda_dataset(nTopics, nCells, nRegions, N, a, b):
     :param b: Dirichlet prior (list of length nRegions) on topics-regions parameter phi
     """
     
-    # Documents-topics distribution
-    theta = np.array([dirichlet.rvs(a)[0] for _ in range(nCells)])
-    # Terms-topics distribution
-    phi = np.array([dirichlet.rvs(b)[0] for _ in range(nTopics)])
-    
+    # Cell topics distribution
+    theta = dist.Dirichlet(a).sample([nCells])
+    # Topics region distribution
+    phi = dist.Dirichlet(b).sample([nTopics])
     
     D = np.empty([nCells, N[1]], dtype = np.int64)
     D_str = []
@@ -111,16 +106,18 @@ def scale_zero_one(x):
     x = (x - x_min) / (x_max - x_min) # Broadcasting rules apply
     return x
 
-def plot_word_cloud(phi, vocab, ax, title):
+def plot_word_cloud(phi, vocab, max_ids, ax, title):
     """
     Word cloud visualisation helpful for interpreting topic-word distributions
 
     :param phi: Vector of word probabilities for specific topic
     :param vocab: Vocabulary array with columns ('index', 'id')
+    :param max_ids: Maximum number of word ids to plot.
     :param ax: Axis object
+    :param title: Plot title
     """
     sorted_, indices = torch.sort(phi, descending=True)
-    df = pd.DataFrame(indices[:100].numpy(), columns=['index'])
+    df = pd.DataFrame(indices[:max_ids].numpy(), columns=['index'])
     words = pd.merge(df, vocab[['index', 'id']],
                      how='left', on='index')['id'].values.tolist()
     sizes = (sorted_[:100] * 10).int().numpy().tolist()

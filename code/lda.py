@@ -29,14 +29,13 @@ logging.basicConfig(format="%(relativeCreated) 9d %(message)s", level=logging.IN
 
 def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
     """
-    This is a fully generative model of a batch of cells.
+    This is a fully generative model of LDA.
     Data is a [nCounts_per_cell, nCells] shaped array of region ids. 
     We assume in this simple example that all cells have the same number of nCounts.
     
     :param D: Data matrix
     :param nTopics: Number of topics
     :param nRegions: Number of regions (vocabulary size)
-    :param batch_size: Batch size when performing inference
     :param nCells: Optional number of cells, used only when D=None to generate a new dataset
     :param N: Optional nCounts per cell, used only when D=None to generate a new dataset
     """
@@ -45,12 +44,13 @@ def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
         N = D.shape[0]
     
     ## Globals
-    # Topic-cells prior
-    a = pyro.param("a", torch.ones(nTopics))
     # Topic-regions prior
-    b = pyro.param("b", torch.ones(nRegions) / 100)
-    # For each topic generate topic-region distribution
+    b = torch.ones(nRegions)/10.
+    a = torch.ones(nTopics)/nTopics
     with pyro.plate("nTopics", nTopics):
+        # Topic-cells prior
+        #a = pyro.sample("a", dist.Gamma(1.0 / nTopics, 1.0))
+        # For each topic generate topic-region distribution
         phi = pyro.sample("phi", dist.Dirichlet(b))
     
     ## Locals
@@ -67,26 +67,24 @@ def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
             w = pyro.sample("w", dist.Categorical(phi_z), obs=D)
             
     obj = dict()
-    obj['alpha'] = a
-    obj['beta'] = b
-    obj['theta'] = theta
-    obj['phi'] = phi
-    obj['D'] = D
+    obj["alpha"] = a
+    obj["beta"] = b
+    obj["theta"] = theta
+    obj["phi"] = phi
+    obj["D"] = D
     return obj
 
 
 def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
     """
-    This is a fully generative guide of a batch of cells.
+    Guide implementation of LDA.
     Data is a [nCounts_per_cell, nCells] shaped array of region ids
     (specifically it is not a histogram). We assume in this simple example
     that all cells have the same number of nCounts.
     
-    :param pred: NN predictor object
     :param D: Data matrix
     :param nTopics: Number of topics
     :param nRegions: Number of regions (vocabulary size)
-    :param batch_size: Batch size when performing inference
     :param nCells: Optional number of cells, used only when D=None to generate a new dataset
     :param N: Optional nCounts per cell, used only when D=None to generate a new dataset
     """
@@ -96,32 +94,36 @@ def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
         N = D.shape[0]
     
     ## Globals
-    a_vi = pyro.param("a_vi", lambda: torch.ones(nTopics) + torch.Tensor(list(range(nTopics))), 
-                      constraint=constraints.positive)
-    b_vi = pyro.param("b_vi", lambda: torch.ones(nRegions), 
-                      constraint=constraints.positive)
+    phi_vi = pyro.param(
+        "phi_vi", 
+        lambda: dist.LogNormal(loc=0., scale=0.2).sample([nTopics, nRegions]),
+        constraint=constraints.positive)
+    theta_vi = pyro.param(
+        "theta_vi", 
+        lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
+        constraint=constraints.positive)
     
     # Iterate over topics
     with pyro.plate("nTopics", nTopics):
-        phi = pyro.sample("phi", dist.Dirichlet(b_vi))
+        phi = pyro.sample("phi", dist.Dirichlet(phi_vi))
     
     # Iterate over cells
     with pyro.plate("nCells", nCells):
         # Topic-cells distribution
-        theta = pyro.sample("theta", dist.Dirichlet(a_vi))
+        theta = pyro.sample("theta", dist.Dirichlet(theta_vi))
                           
     obj = dict()
-    obj['a_vi'] = a_vi
-    obj['b_vi'] = b_vi
+    obj['theta_vi'] = theta_vi
+    obj['phi_vi'] = phi_vi
     obj['theta'] = theta
     obj['phi'] = phi
     obj['D'] = D
     return obj
 
 
-def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, seed = 1):
+def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, weight_decay = 0.01, seed = 1):
     """
-    Fit Amortized LDA
+    Fit LDA
     """
     pyro.set_rng_seed(seed)
     pyro.clear_param_store()
@@ -131,7 +133,7 @@ def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, seed = 1):
     logging.info("Fitting {} cells".format(D.shape[1]))
 
     elbo = pyro.infer.TraceEnum_ELBO(max_plate_nesting=2)
-    optim = pyro.optim.ClippedAdam({"lr": lr})
+    optim = pyro.optim.ClippedAdam({"lr": lr, "weight_decay":weight_decay})
     svi = pyro.infer.SVI(lda_model, lda_guide, optim, elbo)
     losses = []
     
