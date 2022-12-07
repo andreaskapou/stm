@@ -46,17 +46,17 @@ def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
     ## Globals
     # Topic-regions prior
     b = torch.ones(nRegions)/10.
-    a = torch.ones(nTopics)/nTopics
+    #a = torch.ones(nTopics)/nTopics
     with pyro.plate("nTopics", nTopics):
         # Topic-cells prior
-        #a = pyro.sample("a", dist.Gamma(1.0 / nTopics, 1.0))
+        alpha = pyro.sample("alpha", dist.Gamma(1.0/nTopics, 1.0))
         # For each topic generate topic-region distribution
         phi = pyro.sample("phi", dist.Dirichlet(b))
     
     ## Locals
     with pyro.plate("nCells", nCells):
         # Topic-cells distribution
-        theta = pyro.sample("theta", dist.Dirichlet(a))
+        theta = pyro.sample("theta", dist.Dirichlet(alpha))
         with pyro.plate("nCounts", N):
             # The word_topics variable is marginalized out during inference,
             # achieved by specifying infer={"enumerate": "parallel"} and using
@@ -67,7 +67,7 @@ def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
             w = pyro.sample("w", dist.Categorical(phi_z), obs=D)
             
     obj = dict()
-    obj["alpha"] = a
+    obj["alpha"] = alpha
     obj["beta"] = b
     obj["theta"] = theta
     obj["phi"] = phi
@@ -94,6 +94,14 @@ def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
         N = D.shape[0]
     
     ## Globals
+    alpha_a_vi = pyro.param(
+        "alpha_a_vi", 
+        lambda: dist.LogNormal(loc=0., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
+    alpha_b_vi = pyro.param(
+        "alpha_b_vi", 
+        lambda: dist.LogNormal(loc=0., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
     phi_vi = pyro.param(
         "phi_vi", 
         lambda: dist.LogNormal(loc=0., scale=0.2).sample([nTopics, nRegions]),
@@ -105,6 +113,7 @@ def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
     
     # Iterate over topics
     with pyro.plate("nTopics", nTopics):
+        alpha = pyro.sample("alpha", dist.Gamma(alpha_a_vi, alpha_b_vi))
         phi = pyro.sample("phi", dist.Dirichlet(phi_vi))
     
     # Iterate over cells
@@ -113,15 +122,18 @@ def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
         theta = pyro.sample("theta", dist.Dirichlet(theta_vi))
                           
     obj = dict()
+    obj['alpha_a_vi'] = alpha_a_vi
+    obj['alpha_b_vi'] = alpha_b_vi
     obj['theta_vi'] = theta_vi
     obj['phi_vi'] = phi_vi
+    obj['alpha'] = alpha
     obj['theta'] = theta
     obj['phi'] = phi
     obj['D'] = D
     return obj
 
 
-def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, weight_decay = 0.01, seed = 1):
+def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, seed = 1):
     """
     Fit LDA
     """
@@ -133,7 +145,7 @@ def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, weight_decay = 0.01,
     logging.info("Fitting {} cells".format(D.shape[1]))
 
     elbo = pyro.infer.TraceEnum_ELBO(max_plate_nesting=2)
-    optim = pyro.optim.ClippedAdam({"lr": lr, "weight_decay":weight_decay})
+    optim = pyro.optim.ClippedAdam({"lr": lr})
     svi = pyro.infer.SVI(lda_model, lda_guide, optim, elbo)
     losses = []
     

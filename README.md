@@ -1,3 +1,3 @@
-# stm
+# Structural topic models
 
-Testing
+Implementation of different topic models using Pyro probabilistic programming language.
