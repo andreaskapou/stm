@@ -1,14 +1,16 @@
 ## Adapted from Pytorch code for LogNormal distribution:
 # https://github.com/pytorch/pytorch/blob/master/torch/distributions/log_normal.py
 
+import pyro
+import torch
 from torch.distributions import constraints
-from torch.distributions.transforms import SigmoidTransform
 from torch.distributions.normal import Normal
 from torch.distributions.transformed_distribution import TransformedDistribution
+from pyro.distributions.torch_distribution import TorchDistributionMixin
 
-__all__ = ['LogitNormal']
+#__all__ = ['LogitNormal']
 
-class LogitNormal(TransformedDistribution):
+class LogitNormalTorch(TransformedDistribution):
     r"""
     Creates a logit-normal distribution parameterized by
     :attr:`loc` and :attr:`scale` where::
@@ -28,12 +30,15 @@ class LogitNormal(TransformedDistribution):
     has_rsample = True
 
     def __init__(self, loc, scale, validate_args=None):
-        base_dist = Normal(loc, scale, validate_args=validate_args)
-        super(LogitNormal, self).__init__(base_dist, SigmoidTransform(), validate_args=validate_args)
+        base_dist = pyro.distributions.Normal(loc, scale, validate_args=validate_args)
+        super(LogitNormalTorch, self).__init__(
+            base_dist, 
+            torch.distributions.transforms.SigmoidTransform(), 
+            validate_args=validate_args)
 
     def expand(self, batch_shape, _instance=None):
-        new = self._get_checked_instance(LogitNormal, _instance)
-        return super(LogitNormal, self).expand(batch_shape, _instance=new)
+        new = self._get_checked_instance(LogitNormalTorch, _instance)
+        return super(LogitNormalTorch, self).expand(batch_shape, _instance=new)
 
     @property
     def loc(self):
@@ -42,3 +47,8 @@ class LogitNormal(TransformedDistribution):
     @property
     def scale(self):
         return self.base_dist.scale
+    
+
+    
+class LogitNormal(LogitNormalTorch, TorchDistributionMixin):
+    pass
