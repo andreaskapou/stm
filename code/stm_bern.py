@@ -1,7 +1,7 @@
 """
 
-Pyro implementation of mixed-membership model by marginalizing out discrete assignment 
-variables and with Bernoulli observation likelihood. 
+Pyro implementation of structured mixed-membership model by marginalizing 
+out discrete assignment variables and with Bernoulli observation likelihood. 
 This model and inference algorithm treat cells as vectors of
 binary variables (vectors of regions), and collapses region-topic
 assignments using Pyro's enumeration.
