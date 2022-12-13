@@ -48,8 +48,8 @@ def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
     idx = torch.arange(0,nRegions).unsqueeze(1).repeat(1, nCells)
     
     # Define reusable context managers
-    topics_plate = pyro.plate(name="nTopics", size=nTopics, dim=-1)
-    phi_regions_plate = pyro.plate(name="phi_nRegions", size=nRegions, dim=-2)
+    topics_plate = pyro.plate(name='nTopics', size=nTopics, dim=-1)
+    phi_regions_plate = pyro.plate(name='phi_nRegions', size=nRegions, dim=-2)
     
     ## Globals
     # Topic-regions prior
@@ -60,20 +60,20 @@ def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
     #    alpha = pyro.sample("alpha", dist.Gamma(1.0 / nTopics, 1.0))
     # Topic-regions distribution
     with topics_plate, phi_regions_plate:
-        phi = pyro.sample(name="phi", fn=LogitNormal(b, 0.3))
+        phi = pyro.sample(name='phi', fn=LogitNormal(b, 0.3))
         
     ## Locals
-    with pyro.plate(name="nCells", size=nCells):
+    with pyro.plate(name='nCells', size=nCells):
         # Topic-cells distribution
-        theta = pyro.sample(name="theta", fn=dist.Dirichlet(alpha))
-        with pyro.plate(name="nRegions", size=nRegions):
+        theta = pyro.sample(name='theta', fn=dist.Dirichlet(alpha))
+        with pyro.plate(name='nRegions', size=nRegions):
             # The word_topics variable is marginalized out during inference,
             # achieved by specifying infer={"enumerate": "parallel"} and using
             # TraceEnum_ELBO for inference. Thus we can ignore this variable in
             # the guide.
-            z = pyro.sample(name="z", fn=dist.Categorical(theta), infer={"enumerate" : "parallel"})
+            z = pyro.sample(name='z', fn=dist.Categorical(theta), infer={'enumerate' : 'parallel'})
             phi_z = Vindex(phi)[..., idx, z]
-            w = pyro.sample(name="w", fn=dist.Bernoulli(phi_z), obs=D)
+            w = pyro.sample(name='w', fn=dist.Bernoulli(phi_z), obs=D)
                  
     obj = dict()
     obj['alpha'] = alpha
@@ -100,26 +100,26 @@ def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
         nRegions = D.shape[0]
         
     # Define reusable context managers
-    topics_plate = pyro.plate(name="nTopics", size=nTopics, dim=-1)
-    phi_regions_plate = pyro.plate(name="phi_nRegions", size=nRegions, dim=-2)
+    topics_plate = pyro.plate(name='nTopics', size=nTopics, dim=-1)
+    phi_regions_plate = pyro.plate(name='phi_nRegions', size=nRegions, dim=-2)
     
     ## Globals
     phi_vi = pyro.param(
-        "phi_vi", 
-        lambda: dist.Normal(loc=0., scale=0.2).sample([nRegions, nTopics]))
+        name='phi_vi', 
+        init_tensor=lambda: dist.Normal(loc=0., scale=0.2).sample([nRegions, nTopics]))
     theta_vi = pyro.param(
-        "theta_vi", 
-        lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
+        name='theta_vi', 
+        init_tensor=lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
         constraint=constraints.positive)
     
     # Iterate over topics and regions
     with topics_plate, phi_regions_plate:
-        phi = pyro.sample(name="phi", fn=LogitNormal(phi_vi, 0.2))
+        phi = pyro.sample(name='phi', fn=LogitNormal(phi_vi, 0.2))
     
     # Iterate over cells
-    with pyro.plate(name="nCells", size=nCells):
+    with pyro.plate(name='nCells', size=nCells):
         # Topic-cells distribution
-        theta = pyro.sample(name="theta", fn=dist.Dirichlet(theta_vi))
+        theta = pyro.sample(name='theta', fn=dist.Dirichlet(theta_vi))
                           
     obj = dict()
     obj['theta_vi'] = theta_vi
