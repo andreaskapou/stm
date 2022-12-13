@@ -8,6 +8,13 @@ from torch.distributions.normal import Normal
 from torch.distributions.transformed_distribution import TransformedDistribution
 from pyro.distributions.torch_distribution import TorchDistributionMixin
 
+# Logit-Normal distribution, currently Pyro does not implement this.
+#def LogitNormal_old(mu, s): 
+#    base_dist = pyro.distributions.Normal(loc = mu, scale = s)
+#    response_dist = pyro.distributions.TransformedDistribution(
+#        base_distribution=base_dist, transforms=torch.distributions.transforms.SigmoidTransform())
+#    return response_dist
+
 #__all__ = ['LogitNormal']
 
 class LogitNormalTorch(TransformedDistribution):

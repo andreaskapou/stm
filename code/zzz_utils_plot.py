@@ -8,6 +8,8 @@ import pandas as pd
 import numpy as np
 from scipy.sparse import lil_matrix
 
+from zzz_utils import scale_zero_one
+
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 

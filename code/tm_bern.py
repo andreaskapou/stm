@@ -26,19 +26,14 @@ import pyro
 import pyro.distributions as dist
 from pyro.ops.indexing import Vindex
 
+from logit_normal import *
+
 logging.basicConfig(format="%(relativeCreated) 9d %(message)s", level=logging.INFO)
 
-# Logit-Normal distribution, currently Pyro does not implement this.
-def LogitNormal(mu, s): 
-    base_dist = pyro.distributions.Normal(loc = mu, scale = s)
-    response_dist = pyro.distributions.TransformedDistribution(
-        base_distribution=base_dist, transforms=torch.distributions.transforms.SigmoidTransform())
-    return response_dist
 
-
-def tm_bern_model(D=None, nTopics=2, nCells=5, nRegions = 3):
+def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
     """
-    This is a fully generative model of a batch of cells.
+    Implementation of Bernoulli topic model.
     
     :param D: Data matrix, [nRegions, nCells] shaped array
     :param nTopics: Number of topics
@@ -49,7 +44,7 @@ def tm_bern_model(D=None, nTopics=2, nCells=5, nRegions = 3):
         nCells = D.shape[1]
         nRegions = D.shape[0]
     
-    # Index matrix on nRegions x nTopics
+    # Index matrix on nRegions x nCells
     idx = torch.arange(0,nRegions).unsqueeze(1).repeat(1, nCells)
     
     # Define reusable context managers
@@ -63,10 +58,10 @@ def tm_bern_model(D=None, nTopics=2, nCells=5, nRegions = 3):
     alpha = torch.ones(nTopics)/nTopics
     #with topics_plate:
     #    alpha = pyro.sample("alpha", dist.Gamma(1.0 / nTopics, 1.0))
-    
     # Topic-regions distribution
-    with phi_regions_plate, topics_plate:
-        phi = pyro.sample(name="phi", fn=LogitNormal(b, 1))
+    with topics_plate, phi_regions_plate:
+        phi = pyro.sample(name="phi", fn=LogitNormal(b, 0.3))
+        
     ## Locals
     with pyro.plate(name="nCells", size=nCells):
         # Topic-cells distribution
@@ -77,14 +72,8 @@ def tm_bern_model(D=None, nTopics=2, nCells=5, nRegions = 3):
             # TraceEnum_ELBO for inference. Thus we can ignore this variable in
             # the guide.
             z = pyro.sample(name="z", fn=dist.Categorical(theta), infer={"enumerate" : "parallel"})
-            print(z.shape)
-            print(z)
-            tmp = phi[idx, z]
-            print(tmp.shape)
-            print(tmp)
-            print(phi.shape)
-            print(phi)
-            w = pyro.sample(name="w", fn=dist.Bernoulli(phi[idx, z]), obs=D)
+            phi_z = Vindex(phi)[..., idx, z]
+            w = pyro.sample(name="w", fn=dist.Bernoulli(phi_z), obs=D)
                  
     obj = dict()
     obj['alpha'] = alpha
@@ -95,7 +84,7 @@ def tm_bern_model(D=None, nTopics=2, nCells=5, nRegions = 3):
     return obj
 
 
-def tm_bern_guide(D, nTopics=2, nCells=5, nRegions=3):
+def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
     """
     Guide implementation of Bernoulli topic model.
     Data is a [nRegions, nCells] shaped array.
@@ -117,21 +106,20 @@ def tm_bern_guide(D, nTopics=2, nCells=5, nRegions=3):
     ## Globals
     phi_vi = pyro.param(
         "phi_vi", 
-        lambda: dist.LogNormal(loc=0., scale=1).sample([nRegions, nTopics]),
-        constraint=constraints.positive)
+        lambda: dist.Normal(loc=0., scale=0.2).sample([nRegions, nTopics]))
     theta_vi = pyro.param(
         "theta_vi", 
         lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
         constraint=constraints.positive)
     
     # Iterate over topics and regions
-    with phi_regions_plate, topics_plate:
-        phi = pyro.sample("phi", dist.Beta(phi_vi, 2))
+    with topics_plate, phi_regions_plate:
+        phi = pyro.sample(name="phi", fn=LogitNormal(phi_vi, 0.2))
     
     # Iterate over cells
-    with pyro.plate("nCells", nCells):
+    with pyro.plate(name="nCells", size=nCells):
         # Topic-cells distribution
-        theta = pyro.sample("theta", dist.Dirichlet(theta_vi))
+        theta = pyro.sample(name="theta", fn=dist.Dirichlet(theta_vi))
                           
     obj = dict()
     obj['theta_vi'] = theta_vi

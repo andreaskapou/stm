@@ -27,7 +27,7 @@ from pyro.ops.indexing import Vindex
 
 logging.basicConfig(format="%(relativeCreated) 9d %(message)s", level=logging.INFO)
 
-def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
+def lda_model(D, nTopics, nRegions, nCells, N):
     """
     This is a fully generative model of LDA.
     Data is a [nCounts_per_cell, nCells] shaped array of region ids. 
@@ -75,7 +75,7 @@ def lda_model(D=None, nTopics=5, nRegions=100, nCells=50, N=10):
     return obj
 
 
-def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
+def lda_guide(D, nTopics, nRegions, nCells, N):
     """
     Guide implementation of LDA.
     Data is a [nCounts_per_cell, nCells] shaped array of region ids
@@ -133,7 +133,7 @@ def lda_guide(D, nTopics, nRegions, nCells=50, N=10):
     return obj
 
 
-def fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, seed = 1):
+def deprecated_fit_lda(D, nTopics, nRegions, nSteps = 1000, lr = 0.01, seed = 1):
     """
     Fit LDA
     """
