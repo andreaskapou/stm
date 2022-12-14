@@ -31,7 +31,7 @@ from logit_normal import *
 logging.basicConfig(format="%(relativeCreated) 9d %(message)s", level=logging.INFO)
 
 
-def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
+def tm_bern_model(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
     """
     Implementation of Bernoulli topic model.
     
@@ -53,15 +53,15 @@ def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
     
     ## Globals
     # Topic-regions prior
-    b = torch.ones([nRegions, nTopics])/10.
+    b = torch.zeros([nRegions, nTopics])
     # Topic-cells prior
-    alpha = torch.ones(nTopics)/nTopics
-    #with topics_plate:
-    #    alpha = pyro.sample("alpha", dist.Gamma(1.0 / nTopics, 1.0))
+    #alpha = torch.ones(nTopics)/nTopics
+    with topics_plate:
+        alpha = pyro.sample("alpha", dist.Gamma(prior_alpha, 1.0))
     # Topic-regions distribution
     with topics_plate, phi_regions_plate:
-        phi = pyro.sample(name='phi', fn=LogitNormal(b, 0.3))
-        
+        phi = pyro.sample(name='phi', fn=LogitNormal(b, 1.5))
+
     ## Locals
     with pyro.plate(name='nCells', size=nCells):
         # Topic-cells distribution
@@ -84,7 +84,7 @@ def tm_bern_model(D, nTopics, nCells=5, nRegions=3):
     return obj
 
 
-def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
+def tm_bern_guide(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
     """
     Guide implementation of Bernoulli topic model.
     Data is a [nRegions, nCells] shaped array.
@@ -104,6 +104,14 @@ def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
     phi_regions_plate = pyro.plate(name='phi_nRegions', size=nRegions, dim=-2)
     
     ## Globals
+    alpha_a_vi = pyro.param(
+        "alpha_a_vi", 
+        lambda: dist.LogNormal(loc=3., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
+    alpha_b_vi = pyro.param(
+        "alpha_b_vi", 
+        lambda: dist.LogNormal(loc=1., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
     phi_vi = pyro.param(
         name='phi_vi', 
         init_tensor=lambda: dist.Normal(loc=0., scale=0.2).sample([nRegions, nTopics]))
@@ -111,7 +119,9 @@ def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
         name='theta_vi', 
         init_tensor=lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
         constraint=constraints.positive)
-    
+    # Iterate over topics
+    with topics_plate:
+        alpha = pyro.sample("alpha", dist.Gamma(alpha_a_vi, alpha_b_vi))
     # Iterate over topics and regions
     with topics_plate, phi_regions_plate:
         phi = pyro.sample(name='phi', fn=LogitNormal(phi_vi, 0.2))
@@ -122,8 +132,11 @@ def tm_bern_guide(D, nTopics, nCells=5, nRegions=3):
         theta = pyro.sample(name='theta', fn=dist.Dirichlet(theta_vi))
                           
     obj = dict()
+    obj['alpha_a_vi'] = alpha_a_vi
+    obj['alpha_b_vi'] = alpha_b_vi
     obj['theta_vi'] = theta_vi
     obj['phi_vi'] = phi_vi
+    obj['alpha'] = alpha
     obj['theta'] = theta
     obj['phi'] = phi
     obj['D'] = D
