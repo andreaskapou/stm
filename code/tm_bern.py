@@ -37,6 +37,7 @@ def tm_bern_model(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
     
     :param D: Data matrix, [nRegions, nCells] shaped array
     :param nTopics: Number of topics
+    :param prior_alpha: Topic cells prior parameter. This is the shape parameter 'alpha' of the Gamma distribution.
     :param nCells: Optional number of cells, used only when D=None to generate a new dataset
     :param nRegions: Optional number of regions, used only when D=None to generate a new dataset
     """
@@ -53,14 +54,14 @@ def tm_bern_model(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
     
     ## Globals
     # Topic-regions prior
-    b = torch.zeros([nRegions, nTopics])
+    beta = torch.ones([nRegions, nTopics]) * (-1.5)
     # Topic-cells prior
     #alpha = torch.ones(nTopics)/nTopics
     with topics_plate:
         alpha = pyro.sample("alpha", dist.Gamma(prior_alpha, 1.0))
     # Topic-regions distribution
     with topics_plate, phi_regions_plate:
-        phi = pyro.sample(name='phi', fn=LogitNormal(b, 1.5))
+        phi = pyro.sample(name='phi', fn=LogitNormal(beta, 1.5))
 
     ## Locals
     with pyro.plate(name='nCells', size=nCells):
@@ -77,7 +78,7 @@ def tm_bern_model(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
                  
     obj = dict()
     obj['alpha'] = alpha
-    obj['beta'] = b
+    obj['beta'] = beta
     obj['theta'] = theta
     obj['phi'] = phi
     obj['D'] = D
@@ -91,6 +92,7 @@ def tm_bern_guide(D, nTopics, prior_alpha=50, nCells=5, nRegions=3):
     
     :param D: Data matrix, [nRegions, nCells] shaped array
     :param nTopics: Number of topics
+    :param prior_alpha: Topic cells prior parameter. This is the shape parameter 'alpha' of the Gamma distribution.
     :param nCells: Optional number of cells, used only when D=None to generate a new dataset
     :param nRegions: Optional number of regions, used only when D=None to generate a new dataset
     """

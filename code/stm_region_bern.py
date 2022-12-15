@@ -31,13 +31,12 @@ from logit_normal import *
 logging.basicConfig(format="%(relativeCreated) 9d %(message)s", level=logging.INFO)
 
 
-def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
+def stm_bern_model(D, nTopics, Y, prior_alpha=50, nCells=5, nRegions=3):
     """
-    Implementation of Bernoulli topic model with cell and region level covariates.
+    Implementation of Bernoulli topic model with region level covariates.
     
     :param D: Data matrix, [nRegions, nCells] shaped array
     :param nTopics: Number of topics
-    :param X: An [nCells, nCovX] array of cell level covariates.
     :param Y: An [nRegions, nCovY] array of region level covariates.
     :param nCells: Optional number of cells, used only when D=None to generate a new dataset
     :param nRegions: Optional number of regions, used only when D=None to generate a new dataset
@@ -46,8 +45,6 @@ def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
         nCells = D.shape[1]
         nRegions = D.shape[0]
         
-    # Number of cell level covariates
-    nCovX = X.shape[1]
     # Number of region level covariates
     nCovY = Y.shape[1]
     
@@ -69,13 +66,8 @@ def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
     beta = torch.matmul(Y, delta)
     
     # Topic-cells prior
-    gamma_mu = torch.zeros([nCovX, nTopics-1])
-    # Topic specific regression coefficients (nCovX x nTopics-1) for covariates X (nCells x nCovX)
-    with pyro.plate(name='nTopicsX', size=nTopics-1):
-        with pyro.plate(name='nCovX', size=nCovX):
-            gamma = pyro.sample(name='gamma', fn=dist.Normal(gamma_mu, 1))
-    # Matrix mult to obtain nCells x nTopics prior on theta
-    alpha = torch.matmul(X, gamma)
+    with topics_plate:
+        alpha = pyro.sample("alpha", dist.Gamma(prior_alpha, 1.0))
     
     # Topic-regions distribution
     with topics_plate, phi_regions_plate:
@@ -84,7 +76,7 @@ def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
     ## Locals
     with pyro.plate(name='nCells', size=nCells):
         # Topic-cells distribution
-        theta = pyro.sample(name='theta', fn=dist.LogisticNormal(alpha, 0.4))
+        theta = pyro.sample(name='theta', fn=dist.Dirichlet(alpha))
         with pyro.plate(name='nRegions', size=nRegions):
             # The word_topics variable is marginalized out during inference,
             # achieved by specifying infer={"enumerate": "parallel"} and using
@@ -96,7 +88,6 @@ def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
                  
     obj = dict()
     obj['delta'] = delta
-    obj['gamma'] = gamma
     obj['alpha'] = alpha
     obj['beta'] = beta
     obj['theta'] = theta
@@ -105,7 +96,7 @@ def stm_bern_model(D, nTopics, X, Y, nCells=5, nRegions=3):
     return obj
 
 
-def stm_bern_guide(D, nTopics, X, Y, nCells=5, nRegions=3):
+def stm_bern_guide(D, nTopics, Y, prior_alpha=50, nCells=5, nRegions=3):
     """
     Guide implementation of Bernoulli topic model with cell and region level covariates.
     Data is a [nRegions, nCells] shaped array.
@@ -121,9 +112,7 @@ def stm_bern_guide(D, nTopics, X, Y, nCells=5, nRegions=3):
     if D is not None:
         nCells = D.shape[1]
         nRegions = D.shape[0]
-    
-    # Number of cell level covariates
-    nCovX = X.shape[1]
+        
     # Number of region level covariates
     nCovY = Y.shape[1]
     
@@ -139,10 +128,14 @@ def stm_bern_guide(D, nTopics, X, Y, nCells=5, nRegions=3):
     phi_vi = pyro.param(
         name='phi_vi', 
         init_tensor=lambda: dist.Normal(loc=0., scale=0.2).sample([nRegions, nTopics]))
-    gamma_mu_vi = pyro.param(
-        name='gamma_mu_vi', 
-        init_tensor=lambda: dist.Normal(loc=0., scale=0.5).sample([nCovX, nTopics-1])
-    )
+    alpha_a_vi = pyro.param(
+        "alpha_a_vi", 
+        lambda: dist.LogNormal(loc=3., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
+    alpha_b_vi = pyro.param(
+        "alpha_b_vi", 
+        lambda: dist.LogNormal(loc=1., scale=0.5).sample([nTopics]),
+        constraint=constraints.positive)
     theta_vi = pyro.param(
         name='theta_vi', 
         init_tensor=lambda: dist.LogNormal(loc=0., scale=0.5).sample([nCells, nTopics]),
@@ -153,10 +146,9 @@ def stm_bern_guide(D, nTopics, X, Y, nCells=5, nRegions=3):
         with pyro.plate(name='nCovY', size=nCovY):
             delta = pyro.sample(name='delta', fn=dist.Normal(delta_mu_vi, 0.2))
     
-    # Cell level regression coefficients
-    with pyro.plate(name='nTopicsX', size=nTopics-1):
-        with pyro.plate(name='nCovX', size=nCovX):
-            gamma = pyro.sample(name='gamma', fn=dist.Normal(gamma_mu_vi, 0.2))
+    # Iterate over topics
+    with topics_plate:
+        alpha = pyro.sample("alpha", dist.Gamma(alpha_a_vi, alpha_b_vi))
     
     # Iterate over topics and regions
     with topics_plate, phi_regions_plate:
@@ -169,11 +161,11 @@ def stm_bern_guide(D, nTopics, X, Y, nCells=5, nRegions=3):
                           
     obj = dict()
     obj['delta_mu_vi'] = delta_mu_vi
-    obj['gamma_mu_vi'] = gamma_mu_vi
+    obj['alpha_a_vi'] = alpha_a_vi
+    obj['alpha_b_vi'] = alpha_b_vi
     obj['theta_vi'] = theta_vi
     obj['phi_vi'] = phi_vi
     obj['delta'] = delta
-    obj['gamma'] = gamma
     obj['theta'] = theta
     obj['phi'] = phi
     obj['D'] = D

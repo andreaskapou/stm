@@ -45,13 +45,13 @@ def lda_model(D, nTopics, nRegions, nCells, N):
     
     ## Globals
     # Topic-regions prior
-    b = torch.ones(nRegions)/10.
+    beta = torch.ones(nRegions)/10.
     #a = torch.ones(nTopics)/nTopics
     with pyro.plate("nTopics", nTopics):
         # Topic-cells prior
         alpha = pyro.sample("alpha", dist.Gamma(1.0/nTopics, 1.0))
         # For each topic generate topic-region distribution
-        phi = pyro.sample("phi", dist.Dirichlet(b))
+        phi = pyro.sample("phi", dist.Dirichlet(beta))
     
     ## Locals
     with pyro.plate("nCells", nCells):
